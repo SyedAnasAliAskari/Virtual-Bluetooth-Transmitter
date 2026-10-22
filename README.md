@@ -1,27 +1,93 @@
 # DualSync 1.2
 
-DualSync is a Windows 11 tray application that captures the current default playback endpoint
-through WASAPI loopback and sends synchronized copies to additional active audio endpoints.
-Everything runs locally.
+DualSync is a Windows 11 application that captures the current default playback endpoint through
+WASAPI loopback and routes synchronized copies to additional active audio outputs. Processing is
+local to the computer.
 
-The current build uses a black-and-gold visual system and a custom golden-earbuds application,
-taskbar, and tray icon.
+The application uses a clean black-and-gold interface with a golden-earbuds icon across the main
+window, taskbar, executable, and system tray.
 
-The interface supports an ordered Primary, Secondary, and up to three additional output slots.
-It does **not** claim measured 0–10 ms acoustic synchronization or five simultaneous Bluetooth
-streams without matching hardware verification. See
-[`Source/docs/FEASIBILITY.md`](Source/docs/FEASIBILITY.md) for confirmed facts and platform limits.
+> DualSync does not claim seamless hot-swapping, a guaranteed 1–2 ms acoustic match, or reliable
+> five-device Bluetooth playback until those behaviors have been verified with matching hardware.
+> See [`Source/docs/FEASIBILITY.md`](Source/docs/FEASIBILITY.md) for Windows and Bluetooth limits.
 
-## Folder layout
+## Project layout
 
 The project root is intentionally simple:
 
 - `DualSync.exe` — ready-to-run Windows application.
-- `README.md` — usage and technical notes.
-- `Source/` — Python source, tests, packaging configuration, documentation, and a retained
-  legacy archive.
+- `README.md` — usage, validation, and technical notes.
+- `Source/` — source code, tests, packaging configuration, documentation, and legacy archive.
 
-## Install and run
+## Using DualSync
+
+1. Connect the required audio outputs in Windows.
+2. Keep the desired source/primary output selected as the Windows default.
+3. Open `DualSync.exe`.
+4. Select the **Devices** tab to see outputs currently exposed by Windows.
+5. Click an empty output slot or drag a connected device into it. The first assigned output is
+   Primary, the second is Secondary, and up to five outputs can be selected.
+6. Use the **ON/OFF** button in the header to start or pause audio sharing.
+
+The Windows default endpoint continues playing normally. DualSync creates independent renderers
+for the additional outputs to avoid a feedback loop.
+
+### Window and tray controls
+
+- **Minimize (−)** hides the main window while DualSync continues running.
+- **Close (X)** fully stops and exits DualSync. `Alt+F4` performs the same action.
+- Clicking the taskbar icon restores the main window.
+- Single-clicking the system-tray icon opens the window.
+- Right-clicking the tray icon provides **Open DualSync**, Start/Pause, Settings, and
+  **Quit DualSync**.
+- Double-clicking or middle-clicking the tray icon exits the application.
+
+Launching `DualSync.exe` while it is already running activates the existing window instead of
+starting a second independent instance.
+
+Configuration, calibration profiles, and logs are stored under `%LOCALAPPDATA%\DualSync`.
+
+## Output management
+
+The **Sharing** tab contains the saved routing group. The **Devices** tab contains audio endpoints
+currently available through Windows. Disconnected remembered devices are not presented as
+currently connected.
+
+Each selected secondary output supports:
+
+- Pause and Resume without interrupting other outputs.
+- Remove and Rejoin without restarting unaffected renderers.
+- Independent volume.
+- A live connection/rendering status.
+- Per-device timing adjustment in 0.1 ms steps.
+
+These controls change DualSync routing only; they do not disconnect the Bluetooth radio link. Use
+**Bluetooth settings** for Windows-managed connection actions.
+
+DualSync polls active WASAPI endpoints every 2.5 seconds. When an endpoint disappears, only its
+renderer is released. If **Automatically rejoin returning devices** is enabled, a returning output
+receives a fresh buffer, its saved volume and timing profile, and drift compensation without
+restarting healthy renderers.
+
+A change to the Windows default output requires the loopback capture source to restart. DualSync
+detects this condition, but that transition is not described as seamless.
+
+## Synchronization and calibration
+
+Use a small positive **Timing** value for the device heard first. A negative value can make a routed
+secondary play slightly earlier by reducing its software buffer target. Changes are applied to the
+live renderer and saved per endpoint.
+
+**Estimate timing** records rough host-buffer offsets. It does not measure Bluetooth codec,
+wireless, speaker, or acoustic delay. Final synchronization should be tuned by ear or measured with
+a microphone.
+
+The code-level microphone workflow is available through
+`dualsync.core.latency_calibrator.AcousticCalibrator`. Place one microphone equidistant from the
+outputs in a quiet room and call `measure(devices, repeats=3)`. Review the confidence result before
+applying an offset.
+
+## Run from source
 
 Use 64-bit Python 3.12:
 
@@ -31,42 +97,26 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Keep the device you want as the primary output selected as the Windows default. In DualSync,
-click an output slot or drag a device from **Devices** into it. The first slot is Primary and the
-second is Secondary. Use the **ON/OFF** control in the title bar to control sharing. The Windows
-default endpoint plays normally; DualSync renders to the secondaries to avoid a feedback cycle.
-
-The close button minimizes DualSync and leaves its taskbar icon available. Right-click the tray
-icon for Start/Pause, Settings, and Quit DualSync. Configuration and logs live in
-`%LOCALAPPDATA%\DualSync`.
-
-## Calibration
-
-**Estimate timing** saves rough host-buffer offsets inline. It cannot measure Bluetooth codec or
-acoustic delay; use each device's 0.1 ms Timing control for final tuning.
-
-The code-level microphone calibration is available as
-`dualsync.core.latency_calibrator.AcousticCalibrator`. Place one microphone equidistant from
-the devices in a quiet room and call `measure(devices, repeats=3)`. It plays a chirp through
-each endpoint independently and stores no recording. Keep Windows microphone enhancements and
-automatic gain disabled where possible. Review confidence before applying offsets.
-
 ## Validate
 
 ```powershell
 cd Source
 python -m pytest
+python -m ruff check .
 python -m scripts.list_devices
 python -m scripts.audio_smoke_test --seconds 10
 ```
 
-The smoke test opens the real default loopback and first active secondary output. It does not
-prove audible output if the captured stream is silent and it does not measure acoustic delay.
+The current automated suite contains 21 passing tests, including independent renderer management,
+single-instance activation, and separate minimize/quit window-control behavior.
 
-For a proper endurance run, play browser video and a local media file, leave DualSync active
-for at least 30 minutes per configuration, and save diagnostics from `%LOCALAPPDATA%\DualSync`.
+The audio smoke test opens the real default loopback and first active secondary output. It does not
+prove audible playback when the captured stream is silent, and it does not measure acoustic delay.
 
-## Build the Windows executable
+For endurance testing, play browser video and a local media file, leave DualSync active for at
+least 30 minutes per device configuration, and review diagnostics in `%LOCALAPPDATA%\DualSync`.
+
+## Build the executable
 
 ```powershell
 cd Source
@@ -74,38 +124,32 @@ python -m pip install -r requirements-dev.txt
 pyinstaller --clean --noconfirm DualSync.spec
 ```
 
-The windowed build output is `Source\dist\DualSync.exe`; the ready-to-run copy is kept at the
-project root. It does not open a console and needs no
-administrator privileges. To uninstall, disable **Start DualSync with Windows**, exit the tray
-app, delete the executable, then optionally delete `%LOCALAPPDATA%\DualSync`.
+The windowed build is written to `Source\dist\DualSync.exe`. Copy the verified build to the project
+root as `DualSync.exe`. It does not open a console and does not require administrator privileges.
 
-## Independent output controls
+To uninstall, disable **Start DualSync with Windows**, quit DualSync, delete the executable, and
+optionally remove `%LOCALAPPDATA%\DualSync`.
 
-Each selected secondary output has Pause/Resume, Remove/Rejoin, volume, and live status
-controls. These operations affect DualSync routing only; they do not disconnect the Bluetooth
-radio link. Use **Bluetooth settings** for Windows-managed connection actions.
+## Current implementation status
 
-DualSync polls active WASAPI endpoints every 2.5 seconds. A disappearing endpoint loses only
-its own renderer. If **Automatically rejoin returning devices** is enabled, a returning endpoint
-gets a new buffer, its saved volume and calibration offset, and the current mode's synchronization
-target without restarting healthy renderers. A change to the Windows default capture endpoint is
-detected and requests a sharing restart because changing the loopback source cannot be guaranteed
-to be interruption-free.
+Implemented:
 
-Each routed secondary also has a **Fine sync** control with 0.1 ms steps. Add a small positive
-value to the device heard first; use a negative value when that routed secondary needs to play
-slightly earlier. Adjustments change the live buffer target smoothly and are saved per endpoint.
-They are software offsets, not acoustic measurements.
+- Active WASAPI endpoint discovery and default-output loopback capture.
+- Five selectable outputs: one Windows primary and up to four secondary renderers.
+- Independent renderer cancellation, buffers, volume, timing, failure isolation, and cleanup.
+- Sample-rate and channel conversion, bounded buffers, drift correction, and underrun diagnostics.
+- Dynamic endpoint removal and optional automatic rejoin with saved profiles.
+- Connected-device and saved-sharing-group views with drag-and-drop assignment.
+- Taskbar and tray lifecycle, startup integration, auto-resume, and single-instance activation.
+- Functional header ON/OFF, minimize, and full-quit controls.
 
-## Current scope
+Hardware-dependent and not yet claimed as verified:
 
-- Implemented: active WASAPI discovery, default loopback capture, 1–4 secondary renderers
-  (five selected outputs including the primary), stereo/mono conversion, sample-rate
-  conversion, independent bounded buffers, drift correction, manual/calibrated delay,
-  underrun diagnostics, profiles persistence API, hot refresh, tray lifecycle, per-user
-  startup, auto-resume, and single-instance protection.
-- V1.1 adds dynamically managed renderer lifecycles, individual volume, endpoint polling,
-  failure isolation, remembered disconnected rows, and optional automatic rejoin.
-- Hardware-dependent: concurrent Bluetooth capacity, reconnect behavior of each driver,
-  acoustic accuracy, sleep/resume stability, and sustained three/five-device playback.
-- Not claimed as tested: 30-minute endurance, three/five devices, or 0–10 ms acoustic timing.
+- Repeated Bluetooth disconnect/reconnect cycles across several headset models.
+- Sustained three-to-five-device playback.
+- Thirty-minute multi-device endurance and sleep/resume stability.
+- A measured 1–2 ms or 0–10 ms acoustic match between Bluetooth devices.
+- Seamless hot-swapping under every Windows audio driver.
+
+The latest local hardware check detected the Realtek Windows output. Multi-device Bluetooth and
+acoustic-latency claims still require tests using the intended physical devices.
